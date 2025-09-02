@@ -26,6 +26,7 @@ class ArcEasel {
         await this.loadData();
         this.setupEventListeners();
         this.setupDrawingCanvas();
+        this.setTool('select'); // Initialize with select tool
         this.renderBoard();
         this.renderBoards();
     }
@@ -151,8 +152,14 @@ class ArcEasel {
                      onerror="this.src='${this.getDefaultFavicon()}'">
                 <div class="item-title">${item.title}</div>
             </div>
-            <div class="item-url">${this.truncateUrl(item.url)}</div>
+            <div class="item-url ${item.screenshot ? 'has-screenshot' : ''}">${this.truncateUrl(item.url)}</div>
+            ${item.screenshot ? `<div class="item-screenshot"><img src="${item.screenshot}" alt="Screenshot" /></div>` : ''}
             <div class="item-actions">
+                <button class="action-btn screenshot-btn" data-item-id="${item.id}" title="Capture Screenshot">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M9,2V7.38L10.38,8.76L12,7.14L13.62,8.76L15,7.38V2H9M4,9V15H6V11.5L7.5,13L9,11.5V15H11V9H4M13,9V15H15V11.5L16.5,13L18,11.5V15H20V9H13M5,16V18H7V16H5M17,16V18H19V16H17M2,20V22H22V20H2Z" />
+                    </svg>
+                </button>
                 <button class="action-btn" onclick="easel.openItem('${item.id}')" title="Open">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z" />
@@ -169,7 +176,21 @@ class ArcEasel {
         // Add drag functionality
         div.addEventListener('mousedown', (e) => this.handleItemMouseDown(e, item));
         div.addEventListener('click', (e) => {
-            // Only open if we didn't just finish dragging
+            // Handle screenshot button click
+            if (e.target.closest('.screenshot-btn')) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.showScreenshotMenu(e, item.id);
+                return;
+            }
+            
+            // Allow other action buttons to work - don't interfere with their onclick handlers
+            if (e.target.closest('.action-btn')) {
+                return;
+            }
+            
+            // Only prevent default behavior if we're not dealing with action buttons
+            // and we didn't just finish dragging
             if (!this.isDragging && Date.now() - this.dragStartTime > 200) {
                 // Don't redirect on click, only on explicit open button
                 e.preventDefault();
@@ -347,8 +368,20 @@ class ArcEasel {
         }
     }
     
-    switchBoard(boardId) {
+    async switchBoard(boardId) {
         this.currentBoard = boardId;
+        
+        // Load drawings for this board
+        try {
+            const data = await chrome.storage.local.get(['easelData']);
+            const easelData = data.easelData || { drawings: {} };
+            this.drawingPaths = easelData.drawings?.[this.currentBoard] || [];
+            this.redrawCanvas();
+        } catch (error) {
+            console.error('Error loading board drawings:', error);
+            this.drawingPaths = [];
+        }
+        
         this.renderBoard();
         this.updateBoardSelector();
     }
@@ -501,6 +534,348 @@ class ArcEasel {
         const colors = ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe', '#a8edea', '#fed6e3'];
         return colors[Math.floor(Math.random() * colors.length)];
     }
+    
+    setupDrawingCanvas() {
+        const canvas = document.getElementById('drawingCanvas');
+        const container = document.getElementById('canvas');
+        
+        // Set canvas size
+        const resizeCanvas = () => {
+            canvas.width = container.scrollWidth;
+            canvas.height = container.scrollHeight;
+            this.redrawCanvas();
+        };
+        
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        
+        this.ctx = canvas.getContext('2d');
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
+        
+        // Load saved drawings
+        this.redrawCanvas();
+    }
+    
+    setTool(tool) {
+        this.currentTool = tool;
+        
+        // Update tool button states
+        document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelector(`[data-tool="${tool}"]`).classList.add('active');
+        
+        // Update canvas pointer events
+        const canvas = document.getElementById('drawingCanvas');
+        if (tool === 'select') {
+            canvas.classList.remove('drawing-mode');
+        } else {
+            canvas.classList.add('drawing-mode');
+        }
+    }
+    
+    handleDrawingStart(e) {
+        if (this.currentTool === 'select') return;
+        
+        e.preventDefault();
+        e.stopPropagation();
+        
+        this.isDrawing = true;
+        const rect = e.target.getBoundingClientRect();
+        const canvasContainer = document.getElementById('canvas');
+        
+        const x = e.clientX - rect.left + canvasContainer.scrollLeft;
+        const y = e.clientY - rect.top + canvasContainer.scrollTop;
+        
+        this.currentPath = [{
+            x: x,
+            y: y,
+            tool: this.currentTool,
+            color: this.penColor
+        }];
+        
+        if (this.currentTool === 'pen') {
+            this.ctx.beginPath();
+            this.ctx.moveTo(x, y);
+        }
+    }
+    
+    handleDrawingMove(e) {
+        if (!this.isDrawing || this.currentTool === 'select') return;
+        
+        e.preventDefault();
+        
+        const rect = e.target.getBoundingClientRect();
+        const canvasContainer = document.getElementById('canvas');
+        
+        const x = e.clientX - rect.left + canvasContainer.scrollLeft;
+        const y = e.clientY - rect.top + canvasContainer.scrollTop;
+        
+        this.currentPath.push({ x: x, y: y });
+        
+        if (this.currentTool === 'pen') {
+            this.ctx.strokeStyle = this.penColor;
+            this.ctx.lineWidth = 2;
+            this.ctx.lineTo(x, y);
+            this.ctx.stroke();
+        } else if (this.currentTool === 'arrow') {
+            // For arrows, we'll draw a preview
+            this.redrawCanvas();
+            this.drawArrowPreview();
+        }
+    }
+    
+    handleDrawingEnd() {
+        if (!this.isDrawing) return;
+        
+        this.isDrawing = false;
+        
+        if (this.currentPath.length > 1) {
+            this.drawingPaths.push([...this.currentPath]);
+            this.saveData();
+            
+            if (this.currentTool === 'arrow') {
+                this.redrawCanvas();
+            }
+        }
+        
+        this.currentPath = [];
+    }
+    
+    drawArrowPreview() {
+        if (this.currentPath.length < 2) return;
+        
+        const start = this.currentPath[0];
+        const end = this.currentPath[this.currentPath.length - 1];
+        
+        this.ctx.strokeStyle = this.penColor;
+        this.ctx.lineWidth = 2;
+        
+        this.drawArrow(start.x, start.y, end.x, end.y);
+    }
+    
+    drawArrow(fromX, fromY, toX, toY) {
+        const headLength = 15;
+        const angle = Math.atan2(toY - fromY, toX - fromX);
+        
+        // Draw the line
+        this.ctx.beginPath();
+        this.ctx.moveTo(fromX, fromY);
+        this.ctx.lineTo(toX, toY);
+        this.ctx.stroke();
+        
+        // Draw the arrowhead
+        this.ctx.beginPath();
+        this.ctx.moveTo(toX, toY);
+        this.ctx.lineTo(toX - headLength * Math.cos(angle - Math.PI / 6), toY - headLength * Math.sin(angle - Math.PI / 6));
+        this.ctx.moveTo(toX, toY);
+        this.ctx.lineTo(toX - headLength * Math.cos(angle + Math.PI / 6), toY - headLength * Math.sin(angle + Math.PI / 6));
+        this.ctx.stroke();
+    }
+    
+    redrawCanvas() {
+        if (!this.ctx) return;
+        
+        this.ctx.clearRect(0, 0, this.ctx.canvas.width, this.ctx.canvas.height);
+        
+        this.drawingPaths.forEach(path => {
+            if (path.length < 2) return;
+            
+            const firstPoint = path[0];
+            this.ctx.strokeStyle = firstPoint.color || '#3b82f6';
+            this.ctx.lineWidth = 2;
+            
+            if (firstPoint.tool === 'pen') {
+                this.ctx.beginPath();
+                this.ctx.moveTo(firstPoint.x, firstPoint.y);
+                
+                for (let i = 1; i < path.length; i++) {
+                    this.ctx.lineTo(path[i].x, path[i].y);
+                }
+                this.ctx.stroke();
+            } else if (firstPoint.tool === 'arrow') {
+                const lastPoint = path[path.length - 1];
+                this.drawArrow(firstPoint.x, firstPoint.y, lastPoint.x, lastPoint.y);
+            }
+        });
+    }
+    
+    async clearDrawings() {
+        if (confirm('Clear all drawings from this board?')) {
+            this.drawingPaths = [];
+            await this.saveData();
+            this.redrawCanvas();
+        }
+    }
+    
+    async captureScreenshot(itemId) {
+        const item = this.items[itemId];
+        if (!item || !item.url) return;
+        
+        try {
+            // Open URL in new tab for screenshot
+            const newTab = window.open(item.url, '_blank');
+            
+            // Wait a bit for the page to load
+            setTimeout(async () => {
+                if (confirm('Is the page loaded? Click OK to capture screenshot, or Cancel to abort.')) {
+                    try {
+                        // Use HTML2Canvas or similar library for screenshot
+                        // For now, we'll simulate with a placeholder or use a screenshot API
+                        await this.captureWebsiteScreenshot(item);
+                    } catch (error) {
+                        console.error('Screenshot capture failed:', error);
+                        alert('Screenshot capture failed. Please try again.');
+                    }
+                }
+                newTab.close();
+            }, 3000);
+            
+        } catch (error) {
+            console.error('Error capturing screenshot:', error);
+            alert('Could not capture screenshot. Try using the manual screenshot option.');
+        }
+    }
+    
+    async captureWebsiteScreenshot(item) {
+        // For demo purposes, we'll use a placeholder screenshot service
+        // In a real implementation, you might use:
+        // 1. A screenshot API service
+        // 2. Chrome Extension APIs (if this becomes an extension)
+        // 3. Manual file upload
+        
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = 'image/*';
+        fileInput.style.display = 'none';
+        
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    item.screenshot = event.target.result;
+                    await this.saveData();
+                    this.renderBoard();
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+        
+        document.body.appendChild(fileInput);
+        fileInput.click();
+        document.body.removeChild(fileInput);
+    }
+    
+    showScreenshotMenu(event, itemId) {
+        // Remove any existing menu
+        const existingMenu = document.querySelector('.screenshot-menu');
+        if (existingMenu) {
+            existingMenu.remove();
+        }
+        
+        const menu = document.createElement('div');
+        menu.className = 'screenshot-menu';
+        menu.innerHTML = `
+            <div class="menu-item" data-action="upload">📁 Upload Screenshot</div>
+            <div class="menu-item" data-action="fullpage">🖥️ Capture Full Page</div>
+            <div class="menu-item" data-action="area">✂️ Select Area</div>
+            <div class="menu-item" data-action="remove">🗑️ Remove Screenshot</div>
+        `;
+        
+        menu.style.position = 'absolute';
+        menu.style.zIndex = '1001';
+        menu.style.left = event.pageX + 'px';
+        menu.style.top = event.pageY + 'px';
+        
+        menu.addEventListener('click', (e) => {
+            const action = e.target.dataset.action;
+            if (action) {
+                this.handleScreenshotAction(action, itemId);
+                menu.remove();
+            }
+        });
+        
+        document.body.appendChild(menu);
+        
+        // Remove menu when clicking elsewhere
+        setTimeout(() => {
+            document.addEventListener('click', () => menu.remove(), { once: true });
+        }, 100);
+    }
+    
+    async handleScreenshotAction(action, itemId) {
+        const item = this.items[itemId];
+        
+        switch (action) {
+            case 'upload':
+                await this.uploadScreenshot(itemId);
+                break;
+            case 'fullpage':
+                await this.captureFullPage(itemId);
+                break;
+            case 'area':
+                await this.captureSelectedArea(itemId);
+                break;
+            case 'remove':
+                await this.removeScreenshot(itemId);
+                break;
+        }
+    }
+    
+    async uploadScreenshot(itemId) {
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = 'image/*';
+        fileInput.style.display = 'none';
+        
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    this.items[itemId].screenshot = event.target.result;
+                    await this.saveData();
+                    this.renderBoard();
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+        
+        document.body.appendChild(fileInput);
+        fileInput.click();
+        document.body.removeChild(fileInput);
+    }
+    
+    async captureFullPage(itemId) {
+        const item = this.items[itemId];
+        if (!item || !item.url) return;
+        
+        // For demonstration, we'll open a new window and prompt for screenshot
+        const newWindow = window.open(item.url, '_blank', 'width=1200,height=800');
+        
+        setTimeout(() => {
+            alert('Please take a screenshot of the webpage and then use "Upload Screenshot" to add it to your item.');
+            newWindow.close();
+        }, 3000);
+    }
+    
+    async captureSelectedArea(itemId) {
+        alert('Area selection: Please take a screenshot of your desired area and use "Upload Screenshot" to add it.');
+    }
+    
+    async removeScreenshot(itemId) {
+        if (confirm('Remove screenshot from this item?')) {
+            delete this.items[itemId].screenshot;
+            await this.saveData();
+            this.renderBoard();
+        }
+    }
+    
+    selectScreenshotArea(itemId) {
+        // This would implement area selection for partial screenshots
+        // For now, we'll use the same capture method
+        this.captureScreenshot(itemId);
+    }
 }
 
 // Initialize the easel when page loads
@@ -513,5 +888,6 @@ document.addEventListener('DOMContentLoaded', () => {
 window.easel = {
     openItem: (id) => easel.openItem(id),
     deleteItem: (id) => easel.deleteItem(id),
-    deleteBoard: (id) => easel.deleteBoard(id)
+    deleteBoard: (id) => easel.deleteBoard(id),
+    captureScreenshot: (id) => easel.captureScreenshot(id)
 };
