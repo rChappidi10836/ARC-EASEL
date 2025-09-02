@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arc Easel</title>
+    <style>
+        body {
+            width: 350px;
+            height: 400px;
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .actions {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            padding: 12px 16px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            backdrop-filter: blur(10px);
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .btn-primary {
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+        }
+
+        .btn-primary:hover {
+            background: white;
+        }
+
+        .stats {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 16px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 16px;
+        }
+
+        .stats-item {
+            display: inline-block;
+            margin: 0 12px;
+        }
+
+        .stats-number {
+            display: block;
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .stats-label {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        .quick-actions {
+            margin-top: 16px;
+        }
+
+        .quick-actions h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            opacity: 0.9;
+        }
+
+        .recent-items {
+            max-height: 100px;
+            overflow-y: auto;
+        }
+
+        .recent-item {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            margin-bottom: 6px;
+            font-size: 12px;
+        }
+
+        .recent-item img {
+            width: 16px;
+            height: 16px;
+            margin-right: 8px;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎨 Arc Easel</h1>
+    </div>
+
+    <div class="stats">
+        <div class="stats-item">
+            <span class="stats-number" id="totalItems">0</span>
+            <span class="stats-label">Items</span>
+        </div>
+        <div class="stats-item">
+            <span class="stats-number" id="totalBoards">0</span>
+            <span class="stats-label">Boards</span>
+        </div>
+    </div>
+
+    <div class="actions">
+        <button class="btn btn-primary" id="openEasel">Open Easel</button>
+        <button class="btn" id="addCurrentTab">Add Current Tab</button>
+        <button class="btn" id="addAllTabs">Add All Tabs</button>
+        <button class="btn" id="createBoard">Create New Board</button>
+    </div>
+
+    <div class="quick-actions">
+        <h3>Recent Items</h3>
+        <div class="recent-items" id="recentItems">
+            <div class="recent-item">
+                <span>No recent items</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>

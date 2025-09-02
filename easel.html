@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arc Easel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8fafc;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        .toolbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            z-index: 1000;
+        }
+
+        .toolbar-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .toolbar-right {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .board-selector {
+            padding: 8px 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            background: #3b82f6;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        .btn:hover {
+            background: #2563eb;
+        }
+
+        .btn-secondary {
+            background: #6b7280;
+        }
+
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+
+        .canvas {
+            position: absolute;
+            top: 60px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 25% 25%, #f0f9ff 0%, transparent 50%),
+                radial-gradient(circle at 75% 75%, #fef3c7 0%, transparent 50%),
+                #f8fafc;
+            overflow: auto;
+            cursor: grab;
+        }
+
+        .canvas.dragging {
+            cursor: grabbing;
+        }
+
+        .board {
+            position: relative;
+            min-width: 100vw;
+            min-height: calc(100vh - 60px);
+            padding: 40px;
+        }
+
+        .item {
+            position: absolute;
+            width: 280px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+
+        .item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.15);
+            border-color: #3b82f6;
+        }
+
+        .item.dragging {
+            transform: rotate(3deg) scale(1.05);
+            box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.3);
+            z-index: 100;
+        }
+
+        .item-header {
+            padding: 16px;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .item-favicon {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+
+        .item-title {
+            font-weight: 600;
+            color: #1e293b;
+            font-size: 16px;
+            line-height: 1.3;
+            overflow: hidden;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+        }
+
+        .item-url {
+            padding: 0 16px 16px;
+            color: #64748b;
+            font-size: 14px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .item-actions {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .item:hover .item-actions {
+            opacity: 1;
+        }
+
+        .action-btn {
+            width: 24px;
+            height: 24px;
+            border: none;
+            border-radius: 4px;
+            background: rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            margin-left: 4px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .action-btn:hover {
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .grid-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 0, 0, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+            pointer-events: none;
+            opacity: 0.3;
+        }
+
+        .empty-state {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #64748b;
+        }
+
+        .empty-state h2 {
+            font-size: 24px;
+            margin-bottom: 8px;
+            color: #374151;
+        }
+
+        .empty-state p {
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+
+        .sidebar {
+            position: fixed;
+            top: 60px;
+            right: -320px;
+            width: 320px;
+            height: calc(100vh - 60px);
+            background: white;
+            border-left: 1px solid #e2e8f0;
+            transition: right 0.3s;
+            z-index: 500;
+            overflow-y: auto;
+        }
+
+        .sidebar.open {
+            right: 0;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .sidebar-content {
+            padding: 20px;
+        }
+
+        .search-box {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .board-list {
+            margin-top: 20px;
+        }
+
+        .board-item {
+            padding: 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-bottom: 8px;
+            border: 1px solid transparent;
+        }
+
+        .board-item:hover {
+            background: #f1f5f9;
+        }
+
+        .board-item.active {
+            background: #eff6ff;
+            border-color: #3b82f6;
+        }
+
+        @media (max-width: 768px) {
+            .toolbar {
+                padding: 0 15px;
+            }
+            
+            .item {
+                width: 240px;
+            }
+            
+            .sidebar {
+                width: 280px;
+                right: -280px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <div class="toolbar-left">
+            <div class="logo">🎨 Arc Easel</div>
+            <select class="board-selector" id="boardSelector">
+                <option value="default">Default Board</option>
+            </select>
+        </div>
+        <div class="toolbar-right">
+            <input type="text" class="search-box" placeholder="Search items..." id="searchBox" style="width: 200px;">
+            <button class="btn" id="addItemBtn">Add Item</button>
+            <button class="btn btn-secondary" id="sidebarToggle">Boards</button>
+            <button class="btn btn-secondary" id="clearBoard">Clear</button>
+        </div>
+    </div>
+
+    <div class="canvas" id="canvas">
+        <div class="grid-overlay"></div>
+        <div class="board" id="board">
+            <div class="empty-state" id="emptyState">
+                <h2>Your easel is empty</h2>
+                <p>Start by adding some links or tabs</p>
+                <button class="btn" id="addFirstItem">Add Your First Item</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h3>Manage Boards</h3>
+            <button class="btn" id="createBoardBtn">Create Board</button>
+        </div>
+        <div class="sidebar-content">
+            <div class="board-list" id="boardList">
+                <!-- Boards will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="easel.js"></script>
+</body>
+</html>

@@ -1,0 +1,53 @@
+{
+  "manifest_version": 3,
+  "name": "Arc Easel",
+  "version": "1.0.0",
+  "description": "Visual easel for organizing links and tabs in Arc browser",
+  
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab",
+    "contextMenus",
+    "notifications"
+  ],
+  
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Arc Easel"
+  },
+  
+  "background": {
+    "service_worker": "background.js"
+  },
+  
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  
+  "commands": {
+    "open-easel": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+O"
+      },
+      "description": "Open Arc Easel"
+    },
+    "add-current-tab": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+E"
+      },
+      "description": "Add current tab to easel"
+    }
+  },
+  
+  "web_accessible_resources": [
+    {
+      "resources": ["easel.html"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
