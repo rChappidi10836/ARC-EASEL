@@ -80,8 +80,49 @@
             background: #6b7280;
         }
 
-        .btn-secondary:hover {
-            background: #4b5563;
+        .drawing-tools {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-right: 15px;
+            padding-right: 15px;
+            border-right: 1px solid #e2e8f0;
+        }
+
+        .tool-btn {
+            width: 36px;
+            height: 36px;
+            padding: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid transparent;
+        }
+
+        .tool-btn.active {
+            background: #eff6ff;
+            border-color: #3b82f6;
+            color: #3b82f6;
+        }
+
+        .color-picker input {
+            width: 32px;
+            height: 32px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .drawing-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .drawing-canvas.drawing-mode {
+            pointer-events: all;
         }
 
         .canvas {
@@ -145,6 +186,12 @@
             height: 20px;
             border-radius: 4px;
             flex-shrink: 0;
+            background: #f1f5f9;
+            object-fit: cover;
+        }
+
+        .item-favicon[src=""], .item-favicon:not([src]) {
+            background: #e2e8f0;
         }
 
         .item-title {
@@ -310,6 +357,27 @@
             </select>
         </div>
         <div class="toolbar-right">
+            <div class="drawing-tools">
+                <button class="btn tool-btn" id="selectTool" title="Select" data-tool="select">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M2,2V11L7,9L10,12L15,7L21.5,13.5L22.5,12.5L15,5L10,10L6,8L2,2Z"/>
+                    </svg>
+                </button>
+                <button class="btn tool-btn" id="penTool" title="Pen" data-tool="pen">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M16.84,2.73C16.45,2.73 16.07,2.88 15.77,3.17L13.65,5.29L18.95,10.6L21.07,8.5C21.67,7.89 21.67,6.94 21.07,6.36L17.9,3.17C17.6,2.88 17.22,2.73 16.84,2.73M12.94,6L4.84,14.11L7.4,14.39L16.84,5L12.94,6M4.25,15.04L2.5,21.73L9.2,19.94L4.25,15.04Z"/>
+                    </svg>
+                </button>
+                <button class="btn tool-btn" id="arrowTool" title="Arrow" data-tool="arrow">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M2,12A10,10 0 0,1 12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12M16,12L11,7V10H4V14H11V17L16,12Z"/>
+                    </svg>
+                </button>
+                <div class="color-picker">
+                    <input type="color" id="penColor" value="#3b82f6" title="Pen Color">
+                </div>
+                <button class="btn btn-secondary" id="clearDrawings">Clear Drawings</button>
+            </div>
             <input type="text" class="search-box" placeholder="Search items..." id="searchBox" style="width: 200px;">
             <button class="btn" id="addItemBtn">Add Item</button>
             <button class="btn btn-secondary" id="sidebarToggle">Boards</button>
@@ -319,6 +387,7 @@
 
     <div class="canvas" id="canvas">
         <div class="grid-overlay"></div>
+        <canvas class="drawing-canvas" id="drawingCanvas"></canvas>
         <div class="board" id="board">
             <div class="empty-state" id="emptyState">
                 <h2>Your easel is empty</h2>

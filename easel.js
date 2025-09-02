@@ -8,6 +8,16 @@ class ArcEasel {
         this.dragOffset = { x: 0, y: 0 };
         this.selectedItem = null;
         this.searchQuery = '';
+        this.dragStartTime = 0;
+        this.dragStartPos = { x: 0, y: 0 };
+        this.itemElement = null;
+        
+        // Drawing functionality
+        this.currentTool = 'select';
+        this.isDrawing = false;
+        this.drawingPaths = [];
+        this.currentPath = [];
+        this.penColor = '#3b82f6';
         
         this.init();
     }
@@ -15,6 +25,7 @@ class ArcEasel {
     async init() {
         await this.loadData();
         this.setupEventListeners();
+        this.setupDrawingCanvas();
         this.renderBoard();
         this.renderBoards();
     }
@@ -22,10 +33,11 @@ class ArcEasel {
     async loadData() {
         try {
             const data = await chrome.storage.local.get(['easelData']);
-            const easelData = data.easelData || { boards: {}, items: {} };
+            const easelData = data.easelData || { boards: {}, items: {}, drawings: {} };
             
             this.items = easelData.items || {};
             this.boards = easelData.boards || {};
+            this.drawingPaths = easelData.drawings?.[this.currentBoard] || [];
             
             // Ensure default board exists
             if (!this.boards.default) {
@@ -44,12 +56,17 @@ class ArcEasel {
     
     async saveData() {
         try {
-            await chrome.storage.local.set({
-                easelData: {
-                    boards: this.boards,
-                    items: this.items
-                }
-            });
+            const data = await chrome.storage.local.get(['easelData']);
+            const easelData = data.easelData || { drawings: {} };
+            
+            easelData.boards = this.boards;
+            easelData.items = this.items;
+            
+            // Save drawings per board
+            if (!easelData.drawings) easelData.drawings = {};
+            easelData.drawings[this.currentBoard] = this.drawingPaths;
+            
+            await chrome.storage.local.set({ easelData });
         } catch (error) {
             console.error('Error saving data:', error);
         }
@@ -58,11 +75,18 @@ class ArcEasel {
     setupEventListeners() {
         // Toolbar events
         document.getElementById('addItemBtn').addEventListener('click', () => this.showAddItemDialog());
-        document.getElementById('addFirstItem').addEventListener('click', () => this.showAddItemDialog());
+        document.getElementById('addFirstItem')?.addEventListener('click', () => this.showAddItemDialog());
         document.getElementById('clearBoard').addEventListener('click', () => this.clearBoard());
         document.getElementById('sidebarToggle').addEventListener('click', () => this.toggleSidebar());
         document.getElementById('searchBox').addEventListener('input', (e) => this.handleSearch(e.target.value));
         document.getElementById('boardSelector').addEventListener('change', (e) => this.switchBoard(e.target.value));
+        
+        // Drawing tool events
+        document.getElementById('selectTool').addEventListener('click', () => this.setTool('select'));
+        document.getElementById('penTool').addEventListener('click', () => this.setTool('pen'));
+        document.getElementById('arrowTool').addEventListener('click', () => this.setTool('arrow'));
+        document.getElementById('penColor').addEventListener('change', (e) => this.penColor = e.target.value);
+        document.getElementById('clearDrawings').addEventListener('click', () => this.clearDrawings());
         
         // Sidebar events
         document.getElementById('createBoardBtn').addEventListener('click', () => this.createBoard());
@@ -72,6 +96,12 @@ class ArcEasel {
         canvas.addEventListener('mousedown', (e) => this.handleCanvasMouseDown(e));
         canvas.addEventListener('mousemove', (e) => this.handleCanvasMouseMove(e));
         canvas.addEventListener('mouseup', () => this.handleCanvasMouseUp());
+        
+        // Drawing canvas events
+        const drawingCanvas = document.getElementById('drawingCanvas');
+        drawingCanvas.addEventListener('mousedown', (e) => this.handleDrawingStart(e));
+        drawingCanvas.addEventListener('mousemove', (e) => this.handleDrawingMove(e));
+        drawingCanvas.addEventListener('mouseup', () => this.handleDrawingEnd());
         
         // Prevent context menu on canvas
         canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -139,8 +169,11 @@ class ArcEasel {
         // Add drag functionality
         div.addEventListener('mousedown', (e) => this.handleItemMouseDown(e, item));
         div.addEventListener('click', (e) => {
-            if (!this.isDragging) {
-                this.openItem(item.id);
+            // Only open if we didn't just finish dragging
+            if (!this.isDragging && Date.now() - this.dragStartTime > 200) {
+                // Don't redirect on click, only on explicit open button
+                e.preventDefault();
+                e.stopPropagation();
             }
         });
         
@@ -148,7 +181,11 @@ class ArcEasel {
     }
     
     getDefaultFavicon() {
-        return 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%236b7280"><path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6A6,6 0 0,0 6,12A6,6 0 0,0 12,18A6,6 0 0,0 18,12A6,6 0 0,0 12,6M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8Z"/></svg>';
+        return 'data:image/svg+xml;base64,' + btoa(`
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#6b7280">
+                <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M11,16.5L18,9.5L16.59,8.09L11,13.67L7.91,10.59L6.5,12L11,16.5Z"/>
+            </svg>
+        `);
     }
     
     truncateUrl(url) {
@@ -165,7 +202,9 @@ class ArcEasel {
         if (e.target.closest('.action-btn')) return;
         
         e.preventDefault();
-        this.isDragging = true;
+        this.isDragging = false;
+        this.dragStartTime = Date.now();
+        this.dragStartPos = { x: e.clientX, y: e.clientY };
         this.selectedItem = item;
         
         const rect = e.target.getBoundingClientRect();
@@ -176,12 +215,25 @@ class ArcEasel {
             y: e.clientY - rect.top
         };
         
-        e.target.classList.add('dragging');
-        document.getElementById('canvas').classList.add('dragging');
+        this.itemElement = e.target.closest('.item');
     }
     
     handleCanvasMouseMove(e) {
-        if (!this.isDragging || !this.selectedItem) return;
+        if (!this.selectedItem) return;
+        
+        // Check if we've moved enough to start dragging
+        const moveDistance = Math.sqrt(
+            Math.pow(e.clientX - this.dragStartPos.x, 2) + 
+            Math.pow(e.clientY - this.dragStartPos.y, 2)
+        );
+        
+        if (moveDistance > 5 && !this.isDragging) {
+            this.isDragging = true;
+            this.itemElement.classList.add('dragging');
+            document.getElementById('canvas').classList.add('dragging');
+        }
+        
+        if (!this.isDragging) return;
         
         const canvas = document.getElementById('canvas');
         const canvasRect = canvas.getBoundingClientRect();
@@ -189,31 +241,35 @@ class ArcEasel {
         const x = e.clientX - canvasRect.left - this.dragOffset.x + canvas.scrollLeft;
         const y = e.clientY - canvasRect.top - this.dragOffset.y + canvas.scrollTop;
         
-        const itemElement = document.querySelector(`[data-id="${this.selectedItem.id}"]`);
-        if (itemElement) {
-            itemElement.style.left = Math.max(0, x) + 'px';
-            itemElement.style.top = Math.max(0, y) + 'px';
+        if (this.itemElement) {
+            this.itemElement.style.left = Math.max(0, x) + 'px';
+            this.itemElement.style.top = Math.max(0, y) + 'px';
         }
     }
     
     handleCanvasMouseUp() {
-        if (!this.isDragging || !this.selectedItem) return;
+        if (!this.selectedItem) return;
         
-        const itemElement = document.querySelector(`[data-id="${this.selectedItem.id}"]`);
-        if (itemElement) {
-            const x = parseInt(itemElement.style.left);
-            const y = parseInt(itemElement.style.top);
+        const wasDragging = this.isDragging;
+        
+        if (this.isDragging && this.itemElement) {
+            const x = parseInt(this.itemElement.style.left);
+            const y = parseInt(this.itemElement.style.top);
             
             // Update item position
             this.items[this.selectedItem.id].position = { x, y };
             this.saveData();
             
-            itemElement.classList.remove('dragging');
+            this.itemElement.classList.remove('dragging');
         }
         
         document.getElementById('canvas').classList.remove('dragging');
         this.isDragging = false;
         this.selectedItem = null;
+        this.itemElement = null;
+        
+        // Return whether we were dragging (to prevent click event)
+        return wasDragging;
     }
     
     handleCanvasMouseDown(e) {
