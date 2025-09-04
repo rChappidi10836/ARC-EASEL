@@ -29,12 +29,22 @@ class ArcEasel {
         this.setTool('select'); // Initialize with select tool
         this.renderBoard();
         this.renderBoards();
+        this.updateBoardSelector(); // Ensure dropdown is updated on init
     }
     
     async loadData() {
         try {
-            const data = await chrome.storage.local.get(['easelData']);
-            const easelData = data.easelData || { boards: {}, items: {}, drawings: {} };
+            let easelData;
+            
+            // Try Chrome storage first, fallback to localStorage
+            if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+                const data = await chrome.storage.local.get(['easelData']);
+                easelData = data.easelData || { boards: {}, items: {}, drawings: {} };
+            } else {
+                // Fallback to localStorage for regular web pages
+                const stored = localStorage.getItem('easelData');
+                easelData = stored ? JSON.parse(stored) : { boards: {}, items: {}, drawings: {} };
+            }
             
             this.items = easelData.items || {};
             this.boards = easelData.boards || {};
@@ -48,26 +58,81 @@ class ArcEasel {
                     createdAt: new Date().toISOString(),
                     color: '#667eea'
                 };
-                await this.saveData();
             }
+            
+            // Add test data if no items exist (for testing purposes)
+            if (Object.keys(this.items).length === 0) {
+                console.log('No items found, adding test items');
+                const testItem1 = {
+                    id: 'test1',
+                    title: 'Google',
+                    url: 'https://google.com',
+                    favicon: null,
+                    createdAt: new Date().toISOString(),
+                    boardId: 'default',
+                    position: { x: 100, y: 100 }
+                };
+                const testItem2 = {
+                    id: 'test2',
+                    title: 'GitHub',
+                    url: 'https://github.com',
+                    favicon: null,
+                    createdAt: new Date().toISOString(),
+                    boardId: 'default',
+                    position: { x: 300, y: 150 }
+                };
+                this.items[testItem1.id] = testItem1;
+                this.items[testItem2.id] = testItem2;
+            }
+            
+            await this.saveData();
         } catch (error) {
             console.error('Error loading data:', error);
+            // Initialize with empty data if loading fails
+            this.items = {};
+            this.boards = {
+                default: {
+                    id: 'default',
+                    name: 'Default Board',
+                    createdAt: new Date().toISOString(),
+                    color: '#667eea'
+                }
+            };
+            this.drawingPaths = [];
         }
     }
     
     async saveData() {
         try {
-            const data = await chrome.storage.local.get(['easelData']);
-            const easelData = data.easelData || { drawings: {} };
+            let easelData;
             
-            easelData.boards = this.boards;
-            easelData.items = this.items;
-            
-            // Save drawings per board
-            if (!easelData.drawings) easelData.drawings = {};
-            easelData.drawings[this.currentBoard] = this.drawingPaths;
-            
-            await chrome.storage.local.set({ easelData });
+            // Try Chrome storage first, fallback to localStorage
+            if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+                const data = await chrome.storage.local.get(['easelData']);
+                easelData = data.easelData || { drawings: {} };
+                
+                easelData.boards = this.boards;
+                easelData.items = this.items;
+                
+                // Save drawings per board
+                if (!easelData.drawings) easelData.drawings = {};
+                easelData.drawings[this.currentBoard] = this.drawingPaths;
+                
+                await chrome.storage.local.set({ easelData });
+            } else {
+                // Fallback to localStorage
+                const stored = localStorage.getItem('easelData');
+                easelData = stored ? JSON.parse(stored) : { drawings: {} };
+                
+                easelData.boards = this.boards;
+                easelData.items = this.items;
+                
+                // Save drawings per board
+                if (!easelData.drawings) easelData.drawings = {};
+                easelData.drawings[this.currentBoard] = this.drawingPaths;
+                
+                localStorage.setItem('easelData', JSON.stringify(easelData));
+            }
         } catch (error) {
             console.error('Error saving data:', error);
         }
@@ -109,6 +174,61 @@ class ArcEasel {
         
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => this.handleKeyboard(e));
+        
+        // Event delegation for dynamically created action buttons
+        document.addEventListener('click', (e) => {
+            // Handle item open button
+            if (e.target.closest('.open-btn')) {
+                const itemId = e.target.closest('.open-btn').dataset.itemId;
+                console.log('Open button clicked via event delegation for item:', itemId);
+                this.openItem(itemId);
+                return;
+            }
+            
+            // Handle item delete button
+            if (e.target.closest('.delete-btn')) {
+                const itemId = e.target.closest('.delete-btn').dataset.itemId;
+                console.log('Delete button clicked via event delegation for item:', itemId);
+                this.deleteItem(itemId);
+                return;
+            }
+            
+            // Handle board delete button
+            if (e.target.closest('.delete-board-btn')) {
+                const boardId = e.target.closest('.delete-board-btn').dataset.boardId;
+                console.log('Delete board button clicked via event delegation for board:', boardId);
+                this.deleteBoard(boardId);
+                return;
+            }
+            
+            // Handle preview refresh button
+            if (e.target.closest('.preview-refresh')) {
+                const iframe = e.target.closest('.live-preview').querySelector('.live-preview-frame');
+                if (iframe) {
+                    console.log('Refreshing live preview');
+                    iframe.src = iframe.src;
+                }
+                return;
+            }
+        });
+        
+        // Handle iframe load/error events
+        document.addEventListener('load', (e) => {
+            if (e.target.classList && e.target.classList.contains('live-preview-frame')) {
+                console.log('Live preview loaded:', e.target.dataset.url);
+            }
+        }, true);
+        
+        document.addEventListener('error', (e) => {
+            if (e.target.classList && e.target.classList.contains('live-preview-frame')) {
+                console.log('Live preview failed to load:', e.target.dataset.url);
+                e.target.style.display = 'none';
+                const fallback = e.target.nextElementSibling;
+                if (fallback && fallback.classList.contains('preview-fallback')) {
+                    fallback.style.display = 'block';
+                }
+            }
+        }, true);
     }
     
     renderBoard() {
@@ -152,20 +272,20 @@ class ArcEasel {
                      onerror="this.src='${this.getDefaultFavicon()}'">
                 <div class="item-title">${item.title}</div>
             </div>
-            <div class="item-url ${item.screenshot ? 'has-screenshot' : ''}">${this.truncateUrl(item.url)}</div>
-            ${item.screenshot ? `<div class="item-screenshot"><img src="${item.screenshot}" alt="Screenshot" /></div>` : ''}
+            <div class="item-url ${item.screenshot || item.livePreview ? 'has-screenshot' : ''}">${this.truncateUrl(item.url)}</div>
+            ${this.renderItemPreview(item)}
             <div class="item-actions">
                 <button class="action-btn screenshot-btn" data-item-id="${item.id}" title="Capture Screenshot">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M9,2V7.38L10.38,8.76L12,7.14L13.62,8.76L15,7.38V2H9M4,9V15H6V11.5L7.5,13L9,11.5V15H11V9H4M13,9V15H15V11.5L16.5,13L18,11.5V15H20V9H13M5,16V18H7V16H5M17,16V18H19V16H17M2,20V22H22V20H2Z" />
                     </svg>
                 </button>
-                <button class="action-btn" onclick="easel.openItem('${item.id}')" title="Open">
+                <button class="action-btn open-btn" data-item-id="${item.id}" title="Open">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z" />
                     </svg>
                 </button>
-                <button class="action-btn" onclick="easel.deleteItem('${item.id}')" title="Delete">
+                <button class="action-btn delete-btn" data-item-id="${item.id}" title="Delete">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z" />
                     </svg>
@@ -176,7 +296,7 @@ class ArcEasel {
         // Add drag functionality
         div.addEventListener('mousedown', (e) => this.handleItemMouseDown(e, item));
         div.addEventListener('click', (e) => {
-            // Handle screenshot button click
+            // Handle screenshot button click (special case with menu)
             if (e.target.closest('.screenshot-btn')) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -184,7 +304,7 @@ class ArcEasel {
                 return;
             }
             
-            // Allow other action buttons to work - don't interfere with their onclick handlers
+            // Allow all action buttons to work via event delegation - don't interfere
             if (e.target.closest('.action-btn')) {
                 return;
             }
@@ -301,17 +421,26 @@ class ArcEasel {
     }
     
     openItem(itemId) {
+        console.log('openItem called with ID:', itemId);
         const item = this.items[itemId];
+        console.log('Found item:', item);
         if (item && item.url) {
+            console.log('Opening URL:', item.url);
             window.open(item.url, '_blank');
+        } else {
+            console.log('No item found or URL missing');
         }
     }
     
     async deleteItem(itemId) {
+        console.log('deleteItem called with ID:', itemId);
         if (confirm('Are you sure you want to delete this item?')) {
+            console.log('User confirmed deletion');
             delete this.items[itemId];
             await this.saveData();
             this.renderBoard();
+        } else {
+            console.log('User cancelled deletion');
         }
     }
     
@@ -373,8 +502,16 @@ class ArcEasel {
         
         // Load drawings for this board
         try {
-            const data = await chrome.storage.local.get(['easelData']);
-            const easelData = data.easelData || { drawings: {} };
+            let easelData;
+            
+            if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+                const data = await chrome.storage.local.get(['easelData']);
+                easelData = data.easelData || { drawings: {} };
+            } else {
+                const stored = localStorage.getItem('easelData');
+                easelData = stored ? JSON.parse(stored) : { drawings: {} };
+            }
+            
             this.drawingPaths = easelData.drawings?.[this.currentBoard] || [];
             this.redrawCanvas();
         } catch (error) {
@@ -388,6 +525,12 @@ class ArcEasel {
     
     updateBoardSelector() {
         const selector = document.getElementById('boardSelector');
+        if (!selector) {
+            console.warn('Board selector not found, skipping update');
+            return;
+        }
+        
+        console.log('Updating board selector with boards:', Object.keys(this.boards));
         selector.innerHTML = '';
         
         Object.values(this.boards).forEach(board => {
@@ -397,11 +540,18 @@ class ArcEasel {
             option.selected = board.id === this.currentBoard;
             selector.appendChild(option);
         });
+        
+        // Force dropdown refresh
+        selector.value = this.currentBoard;
+        
+        console.log('Board selector updated, current board:', this.currentBoard);
     }
     
     async createBoard() {
         const name = prompt('Enter board name:');
         if (!name) return;
+        
+        console.log('Creating new board:', name);
         
         const board = {
             id: this.generateId(),
@@ -411,9 +561,13 @@ class ArcEasel {
         };
         
         this.boards[board.id] = board;
+        console.log('Board added, total boards:', Object.keys(this.boards).length);
+        
         await this.saveData();
         this.renderBoards();
         this.updateBoardSelector();
+        
+        console.log('Board creation complete');
     }
     
     renderBoards() {
@@ -436,7 +590,7 @@ class ArcEasel {
                         </div>
                     </div>
                     ${board.id !== 'default' ? `
-                        <button class="action-btn" onclick="easel.deleteBoard('${board.id}')" title="Delete Board">
+                        <button class="action-btn delete-board-btn" data-board-id="${board.id}" title="Delete Board">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z" />
                             </svg>
@@ -447,6 +601,7 @@ class ArcEasel {
             
             div.addEventListener('click', (e) => {
                 if (!e.target.closest('.action-btn')) {
+                    console.log('Switching to board from sidebar:', board.id, board.name);
                     this.switchBoard(board.id);
                     this.toggleSidebar();
                 }
@@ -776,10 +931,11 @@ class ArcEasel {
         const menu = document.createElement('div');
         menu.className = 'screenshot-menu';
         menu.innerHTML = `
+            <div class="menu-item" data-action="livePreview">🌐 Live Preview</div>
             <div class="menu-item" data-action="upload">📁 Upload Screenshot</div>
             <div class="menu-item" data-action="fullpage">🖥️ Capture Full Page</div>
             <div class="menu-item" data-action="area">✂️ Select Area</div>
-            <div class="menu-item" data-action="remove">🗑️ Remove Screenshot</div>
+            <div class="menu-item" data-action="remove">🗑️ Remove Preview</div>
         `;
         
         menu.style.position = 'absolute';
@@ -807,6 +963,9 @@ class ArcEasel {
         const item = this.items[itemId];
         
         switch (action) {
+            case 'livePreview':
+                await this.enableLivePreview(itemId);
+                break;
             case 'upload':
                 await this.uploadScreenshot(itemId);
                 break;
@@ -817,7 +976,7 @@ class ArcEasel {
                 await this.captureSelectedArea(itemId);
                 break;
             case 'remove':
-                await this.removeScreenshot(itemId);
+                await this.removePreview(itemId);
                 break;
         }
     }
@@ -863,12 +1022,63 @@ class ArcEasel {
         alert('Area selection: Please take a screenshot of your desired area and use "Upload Screenshot" to add it.');
     }
     
-    async removeScreenshot(itemId) {
-        if (confirm('Remove screenshot from this item?')) {
+    renderItemPreview(item) {
+        if (item.livePreview) {
+            return `
+                <div class="item-preview live-preview">
+                    <div class="preview-header">
+                        <span class="preview-status">🌐 Live Preview</span>
+                        <button class="preview-refresh" data-action="refresh">↻</button>
+                    </div>
+                    <iframe 
+                        src="${item.url}" 
+                        class="live-preview-frame"
+                        sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+                        loading="lazy"
+                        data-url="${item.url}">
+                    </iframe>
+                    <div class="preview-fallback" style="display: none;">
+                        <div class="fallback-message">
+                            <p>🔒 This site can't be previewed</p>
+                            <p>Security restrictions prevent embedding</p>
+                            <a href="${item.url}" target="_blank" class="fallback-link">Open in new tab →</a>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else if (item.screenshot) {
+            return `
+                <div class="item-screenshot">
+                    <img src="${item.screenshot}" alt="Screenshot" />
+                </div>
+            `;
+        }
+        return '';
+    }
+    
+    async enableLivePreview(itemId) {
+        console.log('Enabling live preview for item:', itemId);
+        this.items[itemId].livePreview = true;
+        // Remove screenshot if it exists (can't have both)
+        if (this.items[itemId].screenshot) {
             delete this.items[itemId].screenshot;
+        }
+        await this.saveData();
+        this.renderBoard();
+    }
+    
+    async removePreview(itemId) {
+        if (confirm('Remove preview from this item?')) {
+            delete this.items[itemId].screenshot;
+            delete this.items[itemId].livePreview;
             await this.saveData();
             this.renderBoard();
         }
+    }
+    
+    async removeScreenshot(itemId) {
+        // Legacy method - redirect to removePreview
+        await this.removePreview(itemId);
     }
     
     selectScreenshotArea(itemId) {
@@ -882,12 +1092,6 @@ class ArcEasel {
 let easel;
 document.addEventListener('DOMContentLoaded', () => {
     easel = new ArcEasel();
+    
+    console.log('ArcEasel initialized with CSP-compliant event delegation');
 });
-
-// Global functions for onclick handlers
-window.easel = {
-    openItem: (id) => easel.openItem(id),
-    deleteItem: (id) => easel.deleteItem(id),
-    deleteBoard: (id) => easel.deleteBoard(id),
-    captureScreenshot: (id) => easel.captureScreenshot(id)
-};

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Button Test</title>
+</head>
+<body>
+    <h1>Testing Arc Easel Buttons</h1>
+    
+    <div>
+        <p>Test console output:</p>
+        <button onclick="console.log('Simple onclick test works')">Test Simple Onclick</button>
+        <button onclick="window.easel ? console.log('Window.easel exists') : console.log('Window.easel NOT found')">Test Global Object</button>
+        <button onclick="if(window.easel && window.easel.openItem) { window.easel.openItem('test1'); } else { console.log('openItem not available'); }">Test OpenItem</button>
+    </div>
+    
+    <script>
+        // Simple test
+        window.testGlobal = {
+            test: () => console.log('Test global function works')
+        };
+        
+        console.log('Test page loaded');
+        
+        // Check if easel is available after a delay
+        setTimeout(() => {
+            console.log('Window.easel after delay:', window.easel);
+        }, 1000);
+    </script>
+    
+    <script src="easel.js"></script>
+</body>
+</html>
