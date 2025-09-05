@@ -18,6 +18,7 @@ class ArcEasel {
         this.drawingPaths = [];
         this.currentPath = [];
         this.penColor = '#3b82f6';
+        this.textElements = [];
         
         this.init();
     }
@@ -29,6 +30,7 @@ class ArcEasel {
         this.setTool('select'); // Initialize with select tool
         this.renderBoard();
         this.renderBoards();
+        this.renderTextElements();
         this.updateBoardSelector(); // Ensure dropdown is updated on init
     }
     
@@ -39,16 +41,17 @@ class ArcEasel {
             // Try Chrome storage first, fallback to localStorage
             if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
                 const data = await chrome.storage.local.get(['easelData']);
-                easelData = data.easelData || { boards: {}, items: {}, drawings: {} };
+                easelData = data.easelData || { boards: {}, items: {}, drawings: {}, texts: {} };
             } else {
                 // Fallback to localStorage for regular web pages
                 const stored = localStorage.getItem('easelData');
-                easelData = stored ? JSON.parse(stored) : { boards: {}, items: {}, drawings: {} };
+                easelData = stored ? JSON.parse(stored) : { boards: {}, items: {}, drawings: {}, texts: {} };
             }
             
             this.items = easelData.items || {};
             this.boards = easelData.boards || {};
             this.drawingPaths = easelData.drawings?.[this.currentBoard] || [];
+            this.textElements = easelData.texts?.[this.currentBoard] || [];
             
             // Ensure default board exists
             if (!this.boards.default) {
@@ -99,6 +102,7 @@ class ArcEasel {
                 }
             };
             this.drawingPaths = [];
+            this.textElements = [];
         }
     }
     
@@ -109,7 +113,7 @@ class ArcEasel {
             // Try Chrome storage first, fallback to localStorage
             if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
                 const data = await chrome.storage.local.get(['easelData']);
-                easelData = data.easelData || { drawings: {} };
+                easelData = data.easelData || { drawings: {}, texts: {} };
                 
                 easelData.boards = this.boards;
                 easelData.items = this.items;
@@ -117,12 +121,16 @@ class ArcEasel {
                 // Save drawings per board
                 if (!easelData.drawings) easelData.drawings = {};
                 easelData.drawings[this.currentBoard] = this.drawingPaths;
+                
+                // Save texts per board
+                if (!easelData.texts) easelData.texts = {};
+                easelData.texts[this.currentBoard] = this.textElements;
                 
                 await chrome.storage.local.set({ easelData });
             } else {
                 // Fallback to localStorage
                 const stored = localStorage.getItem('easelData');
-                easelData = stored ? JSON.parse(stored) : { drawings: {} };
+                easelData = stored ? JSON.parse(stored) : { drawings: {}, texts: {} };
                 
                 easelData.boards = this.boards;
                 easelData.items = this.items;
@@ -130,6 +138,10 @@ class ArcEasel {
                 // Save drawings per board
                 if (!easelData.drawings) easelData.drawings = {};
                 easelData.drawings[this.currentBoard] = this.drawingPaths;
+                
+                // Save texts per board
+                if (!easelData.texts) easelData.texts = {};
+                easelData.texts[this.currentBoard] = this.textElements;
                 
                 localStorage.setItem('easelData', JSON.stringify(easelData));
             }
@@ -151,6 +163,8 @@ class ArcEasel {
         document.getElementById('selectTool').addEventListener('click', () => this.setTool('select'));
         document.getElementById('penTool').addEventListener('click', () => this.setTool('pen'));
         document.getElementById('arrowTool').addEventListener('click', () => this.setTool('arrow'));
+        document.getElementById('eraserTool').addEventListener('click', () => this.setTool('eraser'));
+        document.getElementById('textTool').addEventListener('click', () => this.setTool('text'));
         document.getElementById('penColor').addEventListener('change', (e) => this.penColor = e.target.value);
         document.getElementById('clearDrawings').addEventListener('click', () => this.clearDrawings());
         
@@ -168,6 +182,7 @@ class ArcEasel {
         drawingCanvas.addEventListener('mousedown', (e) => this.handleDrawingStart(e));
         drawingCanvas.addEventListener('mousemove', (e) => this.handleDrawingMove(e));
         drawingCanvas.addEventListener('mouseup', () => this.handleDrawingEnd());
+        drawingCanvas.addEventListener('dblclick', (e) => this.handleDoubleClick(e));
         
         // Prevent context menu on canvas
         canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -506,17 +521,20 @@ class ArcEasel {
             
             if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
                 const data = await chrome.storage.local.get(['easelData']);
-                easelData = data.easelData || { drawings: {} };
+                easelData = data.easelData || { drawings: {}, texts: {} };
             } else {
                 const stored = localStorage.getItem('easelData');
-                easelData = stored ? JSON.parse(stored) : { drawings: {} };
+                easelData = stored ? JSON.parse(stored) : { drawings: {}, texts: {} };
             }
             
             this.drawingPaths = easelData.drawings?.[this.currentBoard] || [];
+            this.textElements = easelData.texts?.[this.currentBoard] || [];
             this.redrawCanvas();
+            this.renderTextElements();
         } catch (error) {
             console.error('Error loading board drawings:', error);
             this.drawingPaths = [];
+            this.textElements = [];
         }
         
         this.renderBoard();
@@ -679,6 +697,7 @@ class ArcEasel {
         if (e.key === 'Delete' && this.selectedItem) {
             this.deleteItem(this.selectedItem.id);
         }
+        
     }
     
     generateId() {
@@ -741,16 +760,23 @@ class ArcEasel {
         const x = e.clientX - rect.left + canvasContainer.scrollLeft;
         const y = e.clientY - rect.top + canvasContainer.scrollTop;
         
-        this.currentPath = [{
-            x: x,
-            y: y,
-            tool: this.currentTool,
-            color: this.penColor
-        }];
-        
-        if (this.currentTool === 'pen') {
-            this.ctx.beginPath();
-            this.ctx.moveTo(x, y);
+        if (this.currentTool === 'eraser') {
+            this.eraseAtPoint(x, y);
+        } else if (this.currentTool === 'text') {
+            this.isDrawing = false; // Don't treat text as drawing
+            this.createTextElement(x, y);
+        } else {
+            this.currentPath = [{
+                x: x,
+                y: y,
+                tool: this.currentTool,
+                color: this.penColor
+            }];
+            
+            if (this.currentTool === 'pen') {
+                this.ctx.beginPath();
+                this.ctx.moveTo(x, y);
+            }
         }
     }
     
@@ -765,17 +791,21 @@ class ArcEasel {
         const x = e.clientX - rect.left + canvasContainer.scrollLeft;
         const y = e.clientY - rect.top + canvasContainer.scrollTop;
         
-        this.currentPath.push({ x: x, y: y });
-        
-        if (this.currentTool === 'pen') {
-            this.ctx.strokeStyle = this.penColor;
-            this.ctx.lineWidth = 2;
-            this.ctx.lineTo(x, y);
-            this.ctx.stroke();
-        } else if (this.currentTool === 'arrow') {
-            // For arrows, we'll draw a preview
-            this.redrawCanvas();
-            this.drawArrowPreview();
+        if (this.currentTool === 'eraser') {
+            this.eraseAtPoint(x, y);
+        } else {
+            this.currentPath.push({ x: x, y: y });
+            
+            if (this.currentTool === 'pen') {
+                this.ctx.strokeStyle = this.penColor;
+                this.ctx.lineWidth = 2;
+                this.ctx.lineTo(x, y);
+                this.ctx.stroke();
+            } else if (this.currentTool === 'arrow') {
+                // For arrows, we'll draw a preview
+                this.redrawCanvas();
+                this.drawArrowPreview();
+            }
         }
     }
     
@@ -784,7 +814,7 @@ class ArcEasel {
         
         this.isDrawing = false;
         
-        if (this.currentPath.length > 1) {
+        if (this.currentPath && this.currentPath.length > 1) {
             this.drawingPaths.push([...this.currentPath]);
             this.saveData();
             
@@ -794,6 +824,83 @@ class ArcEasel {
         }
         
         this.currentPath = [];
+    }
+    
+    handleArrowClick(x, y) {
+        if (!this.isDrawingArrow) {
+            // Start new arrow
+            this.isDrawingArrow = true;
+            this.arrowPoints = [{
+                x: x,
+                y: y,
+                tool: 'arrow',
+                color: this.penColor
+            }];
+        } else {
+            // Add point to existing arrow
+            this.arrowPoints.push({ x: x, y: y });
+        }
+        
+        this.redrawCanvas();
+        this.drawArrowPreview();
+        
+        // Show instructions to user
+        this.showArrowInstructions();
+    }
+    
+    finishArrow() {
+        if (this.isDrawingArrow && this.arrowPoints.length >= 2) {
+            this.drawingPaths.push([...this.arrowPoints]);
+            this.saveData();
+            this.redrawCanvas();
+        }
+        
+        this.isDrawingArrow = false;
+        this.arrowPoints = [];
+        this.hideArrowInstructions();
+    }
+    
+    cancelArrow() {
+        this.isDrawingArrow = false;
+        this.arrowPoints = [];
+        this.redrawCanvas();
+        this.hideArrowInstructions();
+    }
+    
+    showArrowInstructions() {
+        let instructions = document.getElementById('arrowInstructions');
+        if (!instructions) {
+            instructions = document.createElement('div');
+            instructions.id = 'arrowInstructions';
+            instructions.style.cssText = `
+                position: fixed;
+                top: 70px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(59, 130, 246, 0.9);
+                color: white;
+                padding: 12px 16px;
+                border-radius: 6px;
+                font-size: 14px;
+                z-index: 1001;
+                backdrop-filter: blur(4px);
+            `;
+            document.body.appendChild(instructions);
+        }
+        
+        const pointCount = this.arrowPoints.length;
+        if (pointCount === 1) {
+            instructions.textContent = 'Click to add arrow points • Double-click or press Enter to finish • Esc to cancel';
+        } else {
+            instructions.textContent = `Arrow: ${pointCount} points • Double-click or press Enter to finish • Esc to cancel`;
+        }
+    }
+    
+    hideArrowInstructions() {
+        const instructions = document.getElementById('arrowInstructions');
+        if (instructions) {
+            instructions.remove();
+        }
     }
     
     drawArrowPreview() {
@@ -854,11 +961,212 @@ class ArcEasel {
         });
     }
     
+    eraseAtPoint(x, y) {
+        const eraserRadius = 20; // Eraser size
+        let pathsToRemove = [];
+        let textsToRemove = [];
+        let shouldUpdate = false;
+        
+        // Check each drawing path (pen strokes and arrows) for intersection with eraser
+        this.drawingPaths.forEach((path, pathIndex) => {
+            if (path.length < 2) return;
+            
+            // Check if any point in the path is within eraser radius
+            for (let i = 0; i < path.length; i++) {
+                const point = path[i];
+                const distance = Math.sqrt(Math.pow(point.x - x, 2) + Math.pow(point.y - y, 2));
+                
+                if (distance <= eraserRadius) {
+                    pathsToRemove.push(pathIndex);
+                    break;
+                }
+            }
+        });
+        
+        // Check each text element for intersection with eraser
+        this.textElements.forEach((textElement, textIndex) => {
+            // Create a bounding box around the text element
+            const textWidth = textElement.text.length * (textElement.fontSize * 0.6); // Approximate text width
+            const textHeight = textElement.fontSize;
+            
+            // Check if eraser point intersects with text bounding box
+            if (x >= textElement.x - 5 && x <= textElement.x + textWidth + 5 &&
+                y >= textElement.y - 5 && y <= textElement.y + textHeight + 5) {
+                textsToRemove.push(textIndex);
+            }
+        });
+        
+        // Remove intersecting drawing paths
+        if (pathsToRemove.length > 0) {
+            pathsToRemove.sort((a, b) => b - a); // Sort in reverse order to avoid index shifting
+            pathsToRemove.forEach(index => {
+                this.drawingPaths.splice(index, 1);
+            });
+            shouldUpdate = true;
+        }
+        
+        // Remove intersecting text elements
+        if (textsToRemove.length > 0) {
+            textsToRemove.sort((a, b) => b - a); // Sort in reverse order to avoid index shifting
+            textsToRemove.forEach(index => {
+                this.textElements.splice(index, 1);
+            });
+            shouldUpdate = true;
+        }
+        
+        // Update canvas and save if anything was erased
+        if (shouldUpdate) {
+            this.redrawCanvas();
+            this.renderTextElements();
+            this.saveData();
+        }
+    }
+    
+    createTextElement(x, y) {
+        // Create a temporary input element for text entry
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'text-input';
+        input.style.left = x + 'px';
+        input.style.top = y + 'px';
+        input.style.color = this.penColor;
+        input.placeholder = 'Enter text...';
+        
+        const board = document.getElementById('board');
+        board.appendChild(input);
+        
+        input.focus();
+        
+        // Handle input completion
+        const completeText = () => {
+            const text = input.value.trim();
+            if (text) {
+                const textElement = {
+                    id: this.generateId(),
+                    text: text,
+                    x: x,
+                    y: y,
+                    color: this.penColor,
+                    fontSize: 16
+                };
+                
+                this.textElements.push(textElement);
+                this.saveData();
+                this.renderTextElements();
+            }
+            board.removeChild(input);
+        };
+        
+        input.addEventListener('blur', completeText);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                completeText();
+            } else if (e.key === 'Escape') {
+                board.removeChild(input);
+            }
+        });
+    }
+    
+    renderTextElements() {
+        // Remove existing text elements
+        document.querySelectorAll('.text-element').forEach(el => el.remove());
+        
+        // Render current text elements
+        const board = document.getElementById('board');
+        this.textElements.forEach(textElement => {
+            const div = document.createElement('div');
+            div.className = 'text-element';
+            div.textContent = textElement.text;
+            div.style.left = textElement.x + 'px';
+            div.style.top = textElement.y + 'px';
+            div.style.color = textElement.color;
+            div.style.fontSize = textElement.fontSize + 'px';
+            div.dataset.id = textElement.id;
+            
+            // Add click event for editing
+            div.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.editTextElement(textElement.id);
+            });
+            
+            // Add double-click event for quick edit
+            div.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                this.editTextElement(textElement.id);
+            });
+            
+            board.appendChild(div);
+        });
+    }
+    
+    editTextElement(textId) {
+        const textElement = this.textElements.find(t => t.id === textId);
+        if (!textElement) return;
+        
+        // Hide the text element temporarily
+        const textDiv = document.querySelector(`[data-id="${textId}"]`);
+        if (textDiv) {
+            textDiv.style.display = 'none';
+        }
+        
+        // Create input for editing
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'text-input';
+        input.value = textElement.text;
+        input.style.left = textElement.x + 'px';
+        input.style.top = textElement.y + 'px';
+        input.style.color = textElement.color;
+        input.style.fontSize = textElement.fontSize + 'px';
+        
+        const board = document.getElementById('board');
+        board.appendChild(input);
+        
+        input.focus();
+        input.select();
+        
+        // Handle input completion
+        const completeEdit = () => {
+            const newText = input.value.trim();
+            if (newText && newText !== textElement.text) {
+                textElement.text = newText;
+                this.saveData();
+            }
+            
+            board.removeChild(input);
+            if (textDiv) {
+                textDiv.style.display = 'block';
+            }
+            this.renderTextElements();
+        };
+        
+        // Handle input cancellation
+        const cancelEdit = () => {
+            board.removeChild(input);
+            if (textDiv) {
+                textDiv.style.display = 'block';
+            }
+        };
+        
+        input.addEventListener('blur', completeEdit);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                completeEdit();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                cancelEdit();
+            }
+        });
+    }
+    
     async clearDrawings() {
-        if (confirm('Clear all drawings from this board?')) {
+        if (confirm('Clear all drawings and text from this board?')) {
             this.drawingPaths = [];
+            this.textElements = [];
             await this.saveData();
             this.redrawCanvas();
+            this.renderTextElements();
         }
     }
     

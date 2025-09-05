@@ -380,6 +380,37 @@
         .menu-item:active {
             background: #e2e8f0;
         }
+        
+        .text-element {
+            position: absolute;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 16px;
+            font-weight: 500;
+            pointer-events: auto;
+            z-index: 15;
+            cursor: pointer;
+            padding: 2px 4px;
+            border-radius: 3px;
+            transition: background 0.2s;
+        }
+        
+        .text-element:hover {
+            background: rgba(59, 130, 246, 0.1);
+        }
+        
+        .text-input {
+            position: absolute;
+            border: 2px solid #3b82f6;
+            border-radius: 4px;
+            background: white;
+            padding: 4px 8px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 16px;
+            font-weight: 500;
+            outline: none;
+            z-index: 20;
+            min-width: 100px;
+        }
 
         .item-actions {
             position: absolute;
@@ -538,6 +569,16 @@
                 <button class="btn tool-btn" id="arrowTool" title="Arrow" data-tool="arrow">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                         <path d="M2,12A10,10 0 0,1 12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12M16,12L11,7V10H4V14H11V17L16,12Z"/>
+                    </svg>
+                </button>
+                <button class="btn tool-btn" id="eraserTool" title="Eraser" data-tool="eraser">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M16.24,3.56L21.19,8.5C21.97,9.29 21.97,10.55 21.19,11.34L12,20.53C10.44,22.09 7.91,22.09 6.34,20.53L2.81,17C2.03,16.21 2.03,14.95 2.81,14.16L13.41,3.56C14.2,2.78 15.46,2.78 16.24,3.56M4.22,15.58L7.76,19.11C8.54,19.9 9.8,19.9 10.59,19.11L14.12,15.58L9.17,10.63L4.22,15.58Z"/>
+                    </svg>
+                </button>
+                <button class="btn tool-btn" id="textTool" title="Text" data-tool="text">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M18.5,4L19.66,8.35L18.7,8.61C18.25,7.74 17.79,7.87 17.26,7.87H16.73V16.5C16.73,17.11 16.88,17.3 17.75,17.3V18H14.25V17.3C15.12,17.3 15.27,17.11 15.27,16.5V7.87H14.74C14.21,7.87 13.75,7.74 13.3,8.61L12.34,8.35L13.5,4H18.5M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/>
                     </svg>
                 </button>
                 <div class="color-picker">
