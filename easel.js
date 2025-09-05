@@ -20,6 +20,11 @@ class ArcEasel {
         this.penColor = '#3b82f6';
         this.textElements = [];
         
+        // Undo/Redo functionality
+        this.undoStack = [];
+        this.redoStack = [];
+        this.maxUndoStates = 50;
+        
         this.init();
     }
     
@@ -32,6 +37,9 @@ class ArcEasel {
         this.renderBoards();
         this.renderTextElements();
         this.updateBoardSelector(); // Ensure dropdown is updated on init
+        
+        // Save initial state for undo functionality
+        this.saveUndoState();
     }
     
     async loadData() {
@@ -412,9 +420,14 @@ class ArcEasel {
             const x = parseInt(this.itemElement.style.left);
             const y = parseInt(this.itemElement.style.top);
             
-            // Update item position
-            this.items[this.selectedItem.id].position = { x, y };
-            this.saveData();
+            // Only save undo state if position actually changed
+            const oldPos = this.items[this.selectedItem.id].position;
+            if (oldPos.x !== x || oldPos.y !== y) {
+                this.saveUndoState();
+                // Update item position
+                this.items[this.selectedItem.id].position = { x, y };
+                this.saveData();
+            }
             
             this.itemElement.classList.remove('dragging');
         }
@@ -451,6 +464,7 @@ class ArcEasel {
         console.log('deleteItem called with ID:', itemId);
         if (confirm('Are you sure you want to delete this item?')) {
             console.log('User confirmed deletion');
+            this.saveUndoState();
             delete this.items[itemId];
             await this.saveData();
             this.renderBoard();
@@ -473,6 +487,7 @@ class ArcEasel {
     }
     
     async addItem(itemData) {
+        this.saveUndoState();
         const item = {
             id: this.generateId(),
             title: itemData.title || 'Untitled',
@@ -670,6 +685,7 @@ class ArcEasel {
     
     async clearBoard() {
         if (confirm('Clear all items from this board?')) {
+            this.saveUndoState();
             Object.keys(this.items).forEach(itemId => {
                 if (this.items[itemId].boardId === this.currentBoard) {
                     delete this.items[itemId];
@@ -691,6 +707,17 @@ class ArcEasel {
         if (e.ctrlKey && e.key === 'n') {
             e.preventDefault();
             this.showAddItemDialog();
+        }
+        
+        // Undo/Redo shortcuts
+        if (e.ctrlKey && e.key === 'z') {
+            e.preventDefault();
+            this.undo();
+        }
+        
+        if (e.ctrlKey && e.key === 'y') {
+            e.preventDefault();
+            this.redo();
         }
         
         // Delete selected item
@@ -815,6 +842,7 @@ class ArcEasel {
         this.isDrawing = false;
         
         if (this.currentPath && this.currentPath.length > 1) {
+            this.saveUndoState();
             this.drawingPaths.push([...this.currentPath]);
             this.saveData();
             
@@ -998,6 +1026,9 @@ class ArcEasel {
         
         // Remove intersecting drawing paths
         if (pathsToRemove.length > 0) {
+            if (!shouldUpdate) {
+                this.saveUndoState(); // Save state before first modification
+            }
             pathsToRemove.sort((a, b) => b - a); // Sort in reverse order to avoid index shifting
             pathsToRemove.forEach(index => {
                 this.drawingPaths.splice(index, 1);
@@ -1007,6 +1038,9 @@ class ArcEasel {
         
         // Remove intersecting text elements
         if (textsToRemove.length > 0) {
+            if (!shouldUpdate) {
+                this.saveUndoState(); // Save state before first modification
+            }
             textsToRemove.sort((a, b) => b - a); // Sort in reverse order to avoid index shifting
             textsToRemove.forEach(index => {
                 this.textElements.splice(index, 1);
@@ -1023,14 +1057,14 @@ class ArcEasel {
     }
     
     createTextElement(x, y) {
-        // Create a temporary input element for text entry
-        const input = document.createElement('input');
-        input.type = 'text';
+        // Create a temporary textarea element for text entry
+        const input = document.createElement('textarea');
         input.className = 'text-input';
         input.style.left = x + 'px';
         input.style.top = y + 'px';
         input.style.color = this.penColor;
-        input.placeholder = 'Enter text...';
+        input.placeholder = 'Enter text... (Shift+Enter for new line)';
+        input.rows = 1;
         
         const board = document.getElementById('board');
         board.appendChild(input);
@@ -1041,6 +1075,7 @@ class ArcEasel {
         const completeText = () => {
             const text = input.value.trim();
             if (text) {
+                this.saveUndoState();
                 const textElement = {
                     id: this.generateId(),
                     text: text,
@@ -1059,11 +1094,31 @@ class ArcEasel {
         
         input.addEventListener('blur', completeText);
         input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && e.shiftKey) {
+                // Shift+Enter: insert new line
+                e.preventDefault();
+                const start = input.selectionStart;
+                const end = input.selectionEnd;
+                const text = input.value;
+                input.value = text.substring(0, start) + '\n' + text.substring(end);
+                input.selectionStart = input.selectionEnd = start + 1;
+                
+                // Auto-resize textarea
+                input.style.height = 'auto';
+                input.style.height = input.scrollHeight + 'px';
+            } else if (e.key === 'Enter' && !e.shiftKey) {
+                // Regular Enter: complete text
+                e.preventDefault();
                 completeText();
             } else if (e.key === 'Escape') {
                 board.removeChild(input);
             }
+        });
+        
+        // Auto-resize as user types
+        input.addEventListener('input', () => {
+            input.style.height = 'auto';
+            input.style.height = input.scrollHeight + 'px';
         });
     }
     
@@ -1109,15 +1164,15 @@ class ArcEasel {
             textDiv.style.display = 'none';
         }
         
-        // Create input for editing
-        const input = document.createElement('input');
-        input.type = 'text';
+        // Create textarea for editing
+        const input = document.createElement('textarea');
         input.className = 'text-input';
         input.value = textElement.text;
         input.style.left = textElement.x + 'px';
         input.style.top = textElement.y + 'px';
         input.style.color = textElement.color;
         input.style.fontSize = textElement.fontSize + 'px';
+        input.rows = textElement.text.split('\n').length;
         
         const board = document.getElementById('board');
         board.appendChild(input);
@@ -1129,6 +1184,7 @@ class ArcEasel {
         const completeEdit = () => {
             const newText = input.value.trim();
             if (newText && newText !== textElement.text) {
+                this.saveUndoState();
                 textElement.text = newText;
                 this.saveData();
             }
@@ -1150,7 +1206,20 @@ class ArcEasel {
         
         input.addEventListener('blur', completeEdit);
         input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && e.shiftKey) {
+                // Shift+Enter: insert new line
+                e.preventDefault();
+                const start = input.selectionStart;
+                const end = input.selectionEnd;
+                const text = input.value;
+                input.value = text.substring(0, start) + '\n' + text.substring(end);
+                input.selectionStart = input.selectionEnd = start + 1;
+                
+                // Auto-resize textarea
+                input.style.height = 'auto';
+                input.style.height = input.scrollHeight + 'px';
+            } else if (e.key === 'Enter' && !e.shiftKey) {
+                // Regular Enter: complete edit
                 e.preventDefault();
                 completeEdit();
             } else if (e.key === 'Escape') {
@@ -1158,10 +1227,99 @@ class ArcEasel {
                 cancelEdit();
             }
         });
+        
+        // Auto-resize as user types
+        input.addEventListener('input', () => {
+            input.style.height = 'auto';
+            input.style.height = input.scrollHeight + 'px';
+        });
+    }
+    
+    saveUndoState() {
+        // Save current state for undo
+        const state = {
+            items: JSON.parse(JSON.stringify(this.items)),
+            drawingPaths: JSON.parse(JSON.stringify(this.drawingPaths)),
+            textElements: JSON.parse(JSON.stringify(this.textElements)),
+            currentBoard: this.currentBoard
+        };
+        
+        this.undoStack.push(state);
+        
+        // Limit undo stack size
+        if (this.undoStack.length > this.maxUndoStates) {
+            this.undoStack.shift();
+        }
+        
+        // Clear redo stack when new action is performed
+        this.redoStack = [];
+    }
+    
+    undo() {
+        if (this.undoStack.length === 0) return;
+        
+        // Save current state to redo stack
+        const currentState = {
+            items: JSON.parse(JSON.stringify(this.items)),
+            drawingPaths: JSON.parse(JSON.stringify(this.drawingPaths)),
+            textElements: JSON.parse(JSON.stringify(this.textElements)),
+            currentBoard: this.currentBoard
+        };
+        this.redoStack.push(currentState);
+        
+        // Restore previous state
+        const prevState = this.undoStack.pop();
+        this.items = prevState.items;
+        this.drawingPaths = prevState.drawingPaths;
+        this.textElements = prevState.textElements;
+        
+        // Switch board if needed
+        if (prevState.currentBoard !== this.currentBoard) {
+            this.currentBoard = prevState.currentBoard;
+            this.updateBoardSelector();
+        }
+        
+        // Re-render everything
+        this.renderBoard();
+        this.redrawCanvas();
+        this.renderTextElements();
+        this.saveData();
+    }
+    
+    redo() {
+        if (this.redoStack.length === 0) return;
+        
+        // Save current state to undo stack
+        const currentState = {
+            items: JSON.parse(JSON.stringify(this.items)),
+            drawingPaths: JSON.parse(JSON.stringify(this.drawingPaths)),
+            textElements: JSON.parse(JSON.stringify(this.textElements)),
+            currentBoard: this.currentBoard
+        };
+        this.undoStack.push(currentState);
+        
+        // Restore next state
+        const nextState = this.redoStack.pop();
+        this.items = nextState.items;
+        this.drawingPaths = nextState.drawingPaths;
+        this.textElements = nextState.textElements;
+        
+        // Switch board if needed
+        if (nextState.currentBoard !== this.currentBoard) {
+            this.currentBoard = nextState.currentBoard;
+            this.updateBoardSelector();
+        }
+        
+        // Re-render everything
+        this.renderBoard();
+        this.redrawCanvas();
+        this.renderTextElements();
+        this.saveData();
     }
     
     async clearDrawings() {
         if (confirm('Clear all drawings and text from this board?')) {
+            this.saveUndoState();
             this.drawingPaths = [];
             this.textElements = [];
             await this.saveData();

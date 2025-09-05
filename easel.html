@@ -392,6 +392,9 @@
             padding: 2px 4px;
             border-radius: 3px;
             transition: background 0.2s;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-width: 300px;
         }
         
         .text-element:hover {
@@ -410,6 +413,11 @@
             outline: none;
             z-index: 20;
             min-width: 100px;
+            min-height: 24px;
+            resize: both;
+            overflow: hidden;
+            white-space: pre-wrap;
+            word-wrap: break-word;
         }
 
         .item-actions {
